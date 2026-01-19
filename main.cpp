@@ -22,7 +22,7 @@
 
 using namespace std;
 
-// CONFIG & STATE
+// Colors
 const Fl_Color C_BG = fl_rgb_color(30, 30, 35);
 const Fl_Color C_PANEL = fl_rgb_color(45, 45, 50);
 const Fl_Color C_ACCENT = fl_rgb_color(0, 122, 204);
@@ -32,36 +32,53 @@ const Fl_Color C_RED = fl_rgb_color(220, 50, 50);
 
 struct AppConfig {
   int test = KEY_8, plus = KEY_0, minus = KEY_9, f_plus = KEY_EQUAL,
-      f_minus = KEY_MINUS;
+      f_minus = KEY_MINUS, cancel = KEY_ESC; // NUEVO: Tecla de cancelación
 } cfg;
+
 struct Profile {
   string name;
   int counts;
 };
 
 atomic<int> raw_counts(10000), capturing_mode(-1);
+atomic<bool> movement_active(false);
 vector<Profile> profiles;
 
 Fl_Group *main_grp, *settings_grp;
 Fl_Value_Input *val_input;
 Fl_Input *inp_profile_name;
 Fl_Choice *choice_profiles;
-// Pointers to the bind buttons to update their text
 vector<Fl_Button *> bind_btns;
 
-// IO UTILS
+// Dynamic Path Logic
+string get_config_path() {
+  const char *appimage_env = getenv("APPIMAGE");
+  if (appimage_env) {
+    string full_path(appimage_env);
+    size_t last_slash = full_path.find_last_of('/');
+    if (last_slash != string::npos) {
+      return full_path.substr(0, last_slash + 1) + "radian.cfg";
+    }
+  }
+  return "radian.cfg";
+}
+
+// IO Utils
 void save_data() {
-  ofstream f("radian.cfg");
+  string path = get_config_path();
+  ofstream f(path);
   if (!f.is_open())
     return;
+
   f << cfg.test << " " << cfg.plus << " " << cfg.minus << " " << cfg.f_plus
-    << " " << cfg.f_minus << endl;
+    << " " << cfg.f_minus << " " << cfg.cancel << endl;
   for (const auto &p : profiles)
     f << p.name << "," << p.counts << endl;
 }
 
 void load_data() {
-  ifstream f("radian.cfg");
+  string path = get_config_path();
+  ifstream f(path);
   if (!f.is_open()) {
     profiles.push_back({"Default", 10000});
     save_data();
@@ -71,7 +88,12 @@ void load_data() {
   if (getline(f, line)) {
     stringstream ss(line);
     ss >> cfg.test >> cfg.plus >> cfg.minus >> cfg.f_plus >> cfg.f_minus;
+    // NUEVO: Cargar tecla de cancelación (con fallback a ESC si no existe)
+    if (!(ss >> cfg.cancel)) {
+      cfg.cancel = KEY_ESC;
+    }
   }
+  profiles.clear();
   while (getline(f, line)) {
     if (line.empty())
       continue;
@@ -90,10 +112,15 @@ void refresh_profile_menu() {
     choice_profiles->add(p.name.c_str());
   for (int i = 0; i < choice_profiles->size(); i++)
     ((Fl_Menu_Item *)choice_profiles->menu())[i].labelcolor(C_TEXT);
-  choice_profiles->value(0);
+
+  if (choice_profiles->size() > 0) {
+    choice_profiles->value(0);
+  }
+
+  choice_profiles->redraw();
 }
 
-// Mouse Movement
+// Virtual Mouse for the Kernel
 class VirtualMouse {
   int fd;
 
@@ -117,15 +144,17 @@ public:
     ioctl(fd, UI_DEV_CREATE);
     sleep(1);
   }
-  // Linear Movement
-  void move(int total) {
+
+  // Allows for cancelable mouse movement
+  void move_async(int total) {
     if (fd < 0)
       return;
-    int moved = 0,
-        chunk =
-            10; // changing this value changes the speed of the mouse movement
+
+    movement_active = true;
+    int moved = 0, chunk = 10;
     struct input_event ev = {};
-    while (moved < total) {
+
+    while (moved < total && movement_active) {
       int step = (total - moved > chunk) ? chunk : (total - moved);
       ev.type = EV_REL;
       ev.code = REL_X;
@@ -138,6 +167,19 @@ public:
       moved += step;
       this_thread::sleep_for(chrono::milliseconds(1));
     }
+
+    movement_active = false;
+  }
+
+  // Thread needed for both mouse movement and keyboard listening
+  void move(int total) {
+
+    if (movement_active) {
+      movement_active = false;
+      this_thread::sleep_for(chrono::milliseconds(50));
+    }
+
+    thread([this, total]() { this->move_async(total); }).detach();
   }
 };
 
@@ -163,9 +205,11 @@ void keyboard_loop(VirtualMouse *mouse) {
     if (libevdev_next_event(dev, LIBEVDEV_READ_FLAG_NORMAL, &ev) == 0 &&
         ev.type == EV_KEY && ev.value == 1) {
       int cap = capturing_mode.load();
+
       if (cap != -1) {
-        int *targets[] = {&cfg.test, &cfg.plus, &cfg.minus, &cfg.f_plus,
-                          &cfg.f_minus};
+        // Keybind capture
+        int *targets[] = {&cfg.test,   &cfg.plus,    &cfg.minus,
+                          &cfg.f_plus, &cfg.f_minus, &cfg.cancel};
         *targets[cap] = ev.code;
         capturing_mode = -1;
         Fl::lock();
@@ -173,7 +217,10 @@ void keyboard_loop(VirtualMouse *mouse) {
         Fl::unlock();
         Fl::awake();
       } else {
-        if (ev.code == cfg.test)
+        // This section is to verify if the movement was canceled
+        if (ev.code == cfg.cancel && movement_active) {
+          movement_active = false;
+        } else if (ev.code == cfg.test)
           mouse->move(raw_counts);
         else if (ev.code == cfg.plus)
           raw_counts += 50;
@@ -183,8 +230,10 @@ void keyboard_loop(VirtualMouse *mouse) {
           raw_counts += 1;
         else if (ev.code == cfg.f_minus)
           raw_counts -= 1;
+
         if (raw_counts < 0)
           raw_counts = 0;
+
         Fl::lock();
         val_input->value(raw_counts);
         Fl::unlock();
@@ -195,12 +244,12 @@ void keyboard_loop(VirtualMouse *mouse) {
   }
 }
 
-// UI HELPERS
+// Ui Helpers
 void style_btn(Fl_Button *b, Fl_Color c = C_BTN, Fl_Color t = C_TEXT) {
   b->box(FL_FLAT_BOX);
   b->color(c);
   b->labelcolor(t);
-  b->clear_visible_focus(); // Removes weird highlight
+  b->clear_visible_focus();
 }
 
 void switch_view_cb(Fl_Widget *, void *v) {
@@ -235,23 +284,32 @@ void save_profile_cb(Fl_Widget *, void *) {
   string name = inp_profile_name->value();
   if (name.empty())
     return;
+
+  int current_val = (int)val_input->value();
+  raw_counts.store(current_val);
+
   bool found = false;
-  for (auto &p : profiles)
+  for (auto &p : profiles) {
     if (p.name == name) {
-      p.counts = raw_counts;
+      p.counts = current_val;
       found = true;
       break;
     }
+  }
   if (!found)
-    profiles.push_back({name, raw_counts.load()});
+    profiles.push_back({name, current_val});
+
   save_data();
   refresh_profile_menu();
-  for (size_t i = 0; i < profiles.size(); ++i)
-    if (profiles[i].name == name)
+
+  for (size_t i = 0; i < profiles.size(); ++i) {
+    if (profiles[i].name == name) {
       choice_profiles->value((int)i);
+      break;
+    }
+  }
 }
 
-// File generator for the settings view
 void make_bind_row(int &y, const char *lbl, int key_code, int cap_idx) {
   auto *l = new Fl_Box(40, y, 100, 25, lbl);
   l->labelcolor(C_TEXT);
@@ -283,9 +341,8 @@ int main(int argc, char **argv) {
   Fl_Window *win = new Fl_Window(420, 320, "Radian");
   win->color(C_BG);
 
-  // MAIN VIEW
+  // Main View
   main_grp = new Fl_Group(0, 0, 420, 320);
-
   auto *t = new Fl_Box(0, 20, 420, 30, "Match your sens");
   t->labelcolor(C_ACCENT);
   t->labelfont(FL_HELVETICA_BOLD);
@@ -312,7 +369,7 @@ int main(int argc, char **argv) {
   auto *h = new Fl_Button(375, 15, 30, 30, "?");
   style_btn(h, C_ACCENT, FL_WHITE);
   h->tooltip("CONTROLS:\n[8] Do 360\n[0] Increase (+50)\n[9] Decrease "
-             "(-50)\n[-/+] Fine Tune (1)");
+             "(-50)\n[-/+] Fine Tune (1)\n[ESC] Cancel Movement");
 
   choice_profiles = new Fl_Choice(60, 95, 300, 30);
   choice_profiles->color(C_BTN);
@@ -326,7 +383,7 @@ int main(int argc, char **argv) {
       inp_profile_name->value(profiles[idx].name.c_str());
     }
   });
-  refresh_profile_menu();
+  refresh_profile_menu(); // Makes sure the default profile is selected
 
   val_input = new Fl_Value_Input(60, 145, 300, 30, "Raw Counts");
   val_input->color(C_BTN);
@@ -344,20 +401,18 @@ int main(int argc, char **argv) {
   inp_profile_name->textcolor(C_TEXT);
   inp_profile_name->labelcolor(C_TEXT);
   inp_profile_name->align(FL_ALIGN_TOP_LEFT);
-  inp_profile_name->value(profiles[0].name.c_str());
-  inp_profile_name->clear_visible_focus();
+  if (!profiles.empty())
+    inp_profile_name->value(profiles[0].name.c_str());
 
   auto *bs = new Fl_Button(60, 245, 300, 40, "SAVE PROFILE");
   style_btn(bs, C_ACCENT, FL_WHITE);
   bs->labelfont(FL_HELVETICA_BOLD);
   bs->callback(save_profile_cb);
-
   main_grp->end();
 
-  // SETTINGS VIEW
+  // Settings View
   settings_grp = new Fl_Group(0, 0, 420, 320);
   settings_grp->hide();
-
   auto *stt = new Fl_Box(0, 15, 420, 30, "Keybinds");
   stt->labelcolor(C_TEXT);
   stt->labelfont(FL_HELVETICA_BOLD);
@@ -369,17 +424,16 @@ int main(int argc, char **argv) {
   make_bind_row(y, "Decrease:", cfg.minus, 2);
   make_bind_row(y, "Fine +:", cfg.f_plus, 3);
   make_bind_row(y, "Fine -:", cfg.f_minus, 4);
+  make_bind_row(y, "Cancel:", cfg.cancel, 5);
 
   y += 8;
   auto *bd = new Fl_Button(40, y, 165, 40, "DEFAULTS");
   style_btn(bd);
   bd->callback([](Fl_Widget *, void *) {
-    cfg = {KEY_8, KEY_0, KEY_9, KEY_EQUAL, KEY_MINUS};
-    bind_btns[0]->label("KEY_8");
-    bind_btns[1]->label("KEY_0");
-    bind_btns[2]->label("KEY_9");
-    bind_btns[3]->label("KEY_EQUAL");
-    bind_btns[4]->label("KEY_MINUS");
+    cfg = {KEY_8, KEY_0, KEY_9, KEY_EQUAL, KEY_MINUS, KEY_ESC};
+    const int defaults[] = {KEY_8, KEY_0, KEY_9, KEY_EQUAL, KEY_MINUS, KEY_ESC};
+    for (int i = 0; i < 6; ++i)
+      bind_btns[i]->label(libevdev_event_code_get_name(EV_KEY, defaults[i]));
   });
 
   auto *bb = new Fl_Button(215, y, 165, 40, "Back and Save");
@@ -399,7 +453,6 @@ int main(int argc, char **argv) {
   gb->labelfont(FL_HELVETICA_BOLD);
   gb->labelsize(11);
   gb->callback(link_cb, (void *)0);
-
   settings_grp->end();
 
   win->end();
