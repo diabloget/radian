@@ -1,10 +1,11 @@
 # Radian
 
 Radian is a precision tool for Linux designed to synchronize 360-degree rotation distance across different games. By directly interfacing with the kernel's input subsystem using `uinput` and `libevdev`, Radian ensures deterministic and consistent horizontal movement, allowing users to calibrate their sensitivity precisely for each specific game.
+
 ![Project Showcase](./docs/showcase.png)
 
 ## Usage
-1. Download the .AppImage file in the Release window.
+1. Download the .AppImage file in the Release section.
 2. Executing it will ask you for your sudo password. Radian needs this in order to create a virtual device.
 3. You can change any keybind within the menu tab in the App. Useful if the default ones are already in use by the game.
 4. If the game allows for it, go into a local match or training session, set the center of the screen or game crosshair on top of an object as reference.
