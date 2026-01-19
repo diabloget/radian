@@ -10,12 +10,13 @@
 #include <FL/fl_draw.H>
 
 #include <atomic>
-#include <cmath>
+#include <cstdio>
 #include <fcntl.h>
 #include <fstream>
 #include <libevdev/libevdev.h>
 #include <linux/uinput.h>
 #include <sstream>
+#include <sys/stat.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
@@ -32,7 +33,7 @@ const Fl_Color C_RED = fl_rgb_color(220, 50, 50);
 
 struct AppConfig {
   int test = KEY_8, plus = KEY_0, minus = KEY_9, f_plus = KEY_EQUAL,
-      f_minus = KEY_MINUS, cancel = KEY_ESC; // NUEVO: Tecla de cancelación
+      f_minus = KEY_MINUS, cancel = KEY_ESC;
 } cfg;
 
 struct Profile {
@@ -69,11 +70,35 @@ void save_data() {
   ofstream f(path);
   if (!f.is_open())
     return;
-
   f << cfg.test << " " << cfg.plus << " " << cfg.minus << " " << cfg.f_plus
     << " " << cfg.f_minus << " " << cfg.cancel << endl;
   for (const auto &p : profiles)
     f << p.name << "," << p.counts << endl;
+
+  f.close();
+
+  // Makes sure the file is writable by the user
+  const char *sudo_uid = getenv("SUDO_UID");
+  const char *sudo_gid = getenv("SUDO_GID");
+  const char *pkexec_uid = getenv("PKEXEC_UID");
+
+  uid_t user_uid = -1;
+  gid_t user_gid = -1;
+
+  if (sudo_uid && sudo_gid) {
+    user_uid = atoi(sudo_uid);
+    user_gid = atoi(sudo_gid);
+  } else if (pkexec_uid) {
+    user_uid = atoi(pkexec_uid);
+    user_gid = user_uid;
+  }
+
+  if (user_uid != (uid_t)-1) {
+    if (chown(path.c_str(), user_uid, user_gid) == -1) {
+      perror("chown warning");
+    }
+  }
+  chmod(path.c_str(), 0644);
 }
 
 void load_data() {
@@ -88,7 +113,6 @@ void load_data() {
   if (getline(f, line)) {
     stringstream ss(line);
     ss >> cfg.test >> cfg.plus >> cfg.minus >> cfg.f_plus >> cfg.f_minus;
-    // NUEVO: Cargar tecla de cancelación (con fallback a ESC si no existe)
     if (!(ss >> cfg.cancel)) {
       cfg.cancel = KEY_ESC;
     }
@@ -173,7 +197,6 @@ public:
 
   // Thread needed for both mouse movement and keyboard listening
   void move(int total) {
-
     if (movement_active) {
       movement_active = false;
       this_thread::sleep_for(chrono::milliseconds(50));
@@ -383,7 +406,7 @@ int main(int argc, char **argv) {
       inp_profile_name->value(profiles[idx].name.c_str());
     }
   });
-  refresh_profile_menu(); // Makes sure the default profile is selected
+  refresh_profile_menu();
 
   val_input = new Fl_Value_Input(60, 145, 300, 30, "Raw Counts");
   val_input->color(C_BTN);

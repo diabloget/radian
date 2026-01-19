@@ -1,4 +1,3 @@
-# Radian setup 
 APP_NAME = radian
 CXX = g++
 CXXFLAGS = $(shell fltk-config --cxxflags) $(shell pkg-config --cflags libevdev) -O2 -Wall
@@ -21,35 +20,20 @@ export DESKTOP_FILE
 all: clean build appimage
 
 build:
-	@echo ">> Compiling binary..."
 	$(CXX) main.cpp -o $(APP_NAME) $(CXXFLAGS) $(LDFLAGS)
 	strip $(APP_NAME)
 
 appimage: build
-	@echo ">> Preparing AppDir structure..."
 	mkdir -p $(APPDIR)/usr/bin
 	mkdir -p $(APPDIR)/usr/share/icons/hicolor/256x256/apps
-	
-	# Instalación del binario con permisos de ejecución 
+	mkdir -p $(APPDIR)/usr/share/metainfo
 	install -m 755 $(APP_NAME) $(APPDIR)/usr/bin/$(APP_NAME)
-	
-	# Icono [cite: 3, 4, 5]
-	if [ -f icon.png ]; then \
-		install -m 644 icon.png $(APPDIR)/radian.png; \
-		install -m 644 icon.png $(APPDIR)/usr/share/icons/hicolor/256x256/apps/radian.png; \
-	else \
-		magick -size 256x256 xc:transparent -fill "#007acc" -draw "circle 128,128 128,5" $(APPDIR)/radian.png; \
-		install -m 644 $(APPDIR)/radian.png $(APPDIR)/usr/share/icons/hicolor/256x256/apps/radian.png; \
-	fi
-	
-	# Archivo Desktop [cite: 2]
+	install -m 644 icon.png $(APPDIR)/radian.png
+	install -m 644 icon.png $(APPDIR)/usr/share/icons/hicolor/256x256/apps/radian.png
 	@echo "$$DESKTOP_FILE" > $(APPDIR)/radian.desktop
 	chmod 644 $(APPDIR)/radian.desktop
-	
-	# Instalar el script AppRun desde el archivo externo
+	@echo '<?xml version="1.0" encoding="UTF-8"?><component type="desktop"><id>io.github.diabloget.radian</id><metadata_license>CC0-1.0</metadata_license><project_license>GPL-3.0</project_license><name>Radian</name><summary>Mouse Sensitivity Matcher</summary><description><p>Radian is a lightweight utility designed for Linux users to match their mouse sensitivity across different games. It provides precise control over raw counts and allows saving multiple sensitivity profiles for quick switching.</p></description><launchable type="desktop-id">radian.desktop</launchable><url type="homepage">https://github.com/diabloget/radian</url><developer_name>Diabloget</developer_name><content_rating type="oars-1.1" /></component>' > $(APPDIR)/usr/share/metainfo/io.github.diabloget.radian.appdata.xml
 	install -m 755 AppRun.sh $(APPDIR)/AppRun
-	
-	@echo ">> Packaging AppImage..."
 	ARCH=x86_64 ./appimagetool-x86_64.AppImage $(APPDIR) Radian-x86_64.AppImage
 	chmod +x Radian-x86_64.AppImage
 
