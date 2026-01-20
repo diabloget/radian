@@ -33,7 +33,7 @@ const Fl_Color C_RED = fl_rgb_color(220, 50, 50);
 
 struct AppConfig {
   int test = KEY_8, plus = KEY_0, minus = KEY_9, f_plus = KEY_EQUAL,
-      f_minus = KEY_MINUS, cancel = KEY_ESC;
+      f_minus = KEY_MINUS, cancel = KEY_BACKSPACE;
 } cfg;
 
 struct Profile {
@@ -114,7 +114,7 @@ void load_data() {
     stringstream ss(line);
     ss >> cfg.test >> cfg.plus >> cfg.minus >> cfg.f_plus >> cfg.f_minus;
     if (!(ss >> cfg.cancel)) {
-      cfg.cancel = KEY_ESC;
+      cfg.cancel = KEY_BACKSPACE;
     }
   }
   profiles.clear();
@@ -267,7 +267,7 @@ void keyboard_loop(VirtualMouse *mouse) {
   }
 }
 
-// Ui Helpers
+// UI Helpers
 void style_btn(Fl_Button *b, Fl_Color c = C_BTN, Fl_Color t = C_TEXT) {
   b->box(FL_FLAT_BOX);
   b->color(c);
@@ -283,6 +283,25 @@ void switch_view_cb(Fl_Widget *, void *v) {
     settings_grp->hide();
     main_grp->show();
     save_data();
+  }
+}
+
+void reset_defaults_cb(Fl_Widget *, void *) {
+  cfg.test = KEY_8;
+  cfg.plus = KEY_0;
+  cfg.minus = KEY_9;
+  cfg.f_plus = KEY_EQUAL;
+  cfg.f_minus = KEY_MINUS;
+  cfg.cancel = KEY_BACKSPACE;
+
+  // We rely on the creation order of bind_btns
+  if (bind_btns.size() >= 6) {
+    bind_btns[0]->copy_label(libevdev_event_code_get_name(EV_KEY, cfg.test));
+    bind_btns[1]->copy_label(libevdev_event_code_get_name(EV_KEY, cfg.plus));
+    bind_btns[2]->copy_label(libevdev_event_code_get_name(EV_KEY, cfg.minus));
+    bind_btns[3]->copy_label(libevdev_event_code_get_name(EV_KEY, cfg.f_plus));
+    bind_btns[4]->copy_label(libevdev_event_code_get_name(EV_KEY, cfg.f_minus));
+    bind_btns[5]->copy_label(libevdev_event_code_get_name(EV_KEY, cfg.cancel));
   }
 }
 
@@ -334,11 +353,13 @@ void save_profile_cb(Fl_Widget *, void *) {
 }
 
 void make_bind_row(int &y, const char *lbl, int key_code, int cap_idx) {
-  auto *l = new Fl_Box(40, y, 100, 25, lbl);
+  auto *l = new Fl_Box(60, y, 150, 40, lbl);
   l->labelcolor(C_TEXT);
+  l->labelsize(16);
   l->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-  auto *b = new Fl_Button(160, y, 220, 25);
+  auto *b = new Fl_Button(240, y, 330, 40);
   b->copy_label(libevdev_event_code_get_name(EV_KEY, key_code));
+  b->labelsize(14);
   style_btn(b);
   b->callback(
       [](Fl_Widget *w, void *v) {
@@ -347,7 +368,7 @@ void make_bind_row(int &y, const char *lbl, int key_code, int cap_idx) {
       },
       (void *)(long)cap_idx);
   bind_btns.push_back(b);
-  y += 32;
+  y += 55;
 }
 
 int main(int argc, char **argv) {
@@ -361,42 +382,43 @@ int main(int argc, char **argv) {
   VirtualMouse vMouse;
   thread(keyboard_loop, &vMouse).detach();
 
-  Fl_Window *win = new Fl_Window(420, 320, "Radian");
+  Fl_Window *win = new Fl_Window(630, 480, "Radian");
   win->color(C_BG);
 
-  // Main View
-  main_grp = new Fl_Group(0, 0, 420, 320);
-  auto *t = new Fl_Box(0, 20, 420, 30, "Match your sens");
+  main_grp = new Fl_Group(0, 0, 630, 480);
+  auto *t = new Fl_Box(0, 30, 630, 45, "Match your sens");
   t->labelcolor(C_ACCENT);
   t->labelfont(FL_HELVETICA_BOLD);
-  t->labelsize(22);
+  t->labelsize(33);
 
-  auto *st = new Fl_Box(238, 45, 100, 20, "with ");
+  auto *st = new Fl_Box(357, 67, 150, 30, "with ");
   st->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-  st->labelsize(11);
+  st->labelsize(16);
   st->labelcolor(C_TEXT);
 
-  auto *br = new Fl_Button(263, 45, 100, 20, "Radian");
+  auto *br = new Fl_Button(394, 67, 150, 30, "Radian");
   style_btn(br, C_BG, C_RED);
   br->box(FL_NO_BOX);
   br->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
   br->labelfont(FL_HELVETICA_BOLD);
-  br->labelsize(11);
+  br->labelsize(16);
   br->callback(link_cb, (void *)1);
 
-  auto *mb = new Fl_Button(15, 17, 55, 25, "MENU");
+  auto *mb = new Fl_Button(22, 25, 82, 37, "MENU");
   style_btn(mb);
-  mb->labelsize(11);
+  mb->labelsize(16);
   mb->callback(switch_view_cb, (void *)1);
 
-  auto *h = new Fl_Button(375, 15, 30, 30, "?");
+  auto *h = new Fl_Button(562, 22, 45, 45, "?");
   style_btn(h, C_ACCENT, FL_WHITE);
+  h->labelsize(18);
   h->tooltip("CONTROLS:\n[8] Do 360\n[0] Increase (+50)\n[9] Decrease "
-             "(-50)\n[-/+] Fine Tune (1)\n[ESC] Cancel Movement");
+             "(-50)\n[-/+] Fine Tune (1)\n[BKSP] Cancel Movement");
 
-  choice_profiles = new Fl_Choice(60, 95, 300, 30);
+  choice_profiles = new Fl_Choice(90, 130, 450, 45);
   choice_profiles->color(C_BTN);
   choice_profiles->textcolor(C_TEXT);
+  choice_profiles->textsize(20);
   choice_profiles->clear_visible_focus();
   choice_profiles->callback([](Fl_Widget *, void *) {
     int idx = choice_profiles->value();
@@ -408,10 +430,12 @@ int main(int argc, char **argv) {
   });
   refresh_profile_menu();
 
-  val_input = new Fl_Value_Input(60, 145, 300, 30, "Raw Counts");
+  val_input = new Fl_Value_Input(90, 205, 450, 45, "Raw Counts");
   val_input->color(C_BTN);
   val_input->textcolor(C_ACCENT);
   val_input->labelcolor(C_TEXT);
+  val_input->textsize(21);
+  val_input->labelsize(18);
   val_input->align(FL_ALIGN_TOP_LEFT);
   val_input->value(raw_counts);
   val_input->clear_visible_focus();
@@ -419,66 +443,60 @@ int main(int argc, char **argv) {
     raw_counts = (int)((Fl_Value_Input *)w)->value();
   });
 
-  inp_profile_name = new Fl_Input(60, 200, 300, 30, "Profile Name");
+  inp_profile_name = new Fl_Input(90, 290, 450, 45, "Profile Name");
   inp_profile_name->color(C_BTN);
   inp_profile_name->textcolor(C_TEXT);
   inp_profile_name->labelcolor(C_TEXT);
+  inp_profile_name->textsize(20);
+  inp_profile_name->labelsize(18);
   inp_profile_name->align(FL_ALIGN_TOP_LEFT);
   if (!profiles.empty())
     inp_profile_name->value(profiles[0].name.c_str());
 
-  auto *bs = new Fl_Button(60, 245, 300, 40, "SAVE PROFILE");
-  style_btn(bs, C_ACCENT, FL_WHITE);
-  bs->labelfont(FL_HELVETICA_BOLD);
-  bs->callback(save_profile_cb);
+  auto *btn_save = new Fl_Button(90, 370, 450, 45, "SAVE PROFILE");
+  style_btn(btn_save, C_ACCENT, FL_WHITE);
+  btn_save->labelfont(FL_HELVETICA_BOLD);
+  btn_save->labelsize(16);
+  btn_save->callback(save_profile_cb);
+
   main_grp->end();
 
-  // Settings View
-  settings_grp = new Fl_Group(0, 0, 420, 320);
+  settings_grp = new Fl_Group(0, 0, 630, 480);
   settings_grp->hide();
-  auto *stt = new Fl_Box(0, 15, 420, 30, "Keybinds");
-  stt->labelcolor(C_TEXT);
-  stt->labelfont(FL_HELVETICA_BOLD);
-  stt->labelsize(18);
 
-  int y = 55;
-  make_bind_row(y, "Do 360:", cfg.test, 0);
-  make_bind_row(y, "Increase:", cfg.plus, 1);
-  make_bind_row(y, "Decrease:", cfg.minus, 2);
-  make_bind_row(y, "Fine +:", cfg.f_plus, 3);
-  make_bind_row(y, "Fine -:", cfg.f_minus, 4);
-  make_bind_row(y, "Cancel:", cfg.cancel, 5);
+  auto *b_back = new Fl_Button(22, 25, 82, 37, "BACK");
+  style_btn(b_back);
+  b_back->labelsize(16);
+  b_back->callback(switch_view_cb, (void *)0);
 
-  y += 8;
-  auto *bd = new Fl_Button(40, y, 165, 40, "DEFAULTS");
-  style_btn(bd);
-  bd->callback([](Fl_Widget *, void *) {
-    cfg = {KEY_8, KEY_0, KEY_9, KEY_EQUAL, KEY_MINUS, KEY_ESC};
-    const int defaults[] = {KEY_8, KEY_0, KEY_9, KEY_EQUAL, KEY_MINUS, KEY_ESC};
-    for (int i = 0; i < 6; ++i)
-      bind_btns[i]->label(libevdev_event_code_get_name(EV_KEY, defaults[i]));
-  });
+  auto *b_reset = new Fl_Button(562, 25, 45, 37, "DEF");
+  style_btn(b_reset, C_ACCENT, FL_WHITE);
+  b_reset->labelsize(16);
+  b_reset->tooltip("Set Default Values");
+  b_reset->callback(reset_defaults_cb);
 
-  auto *bb = new Fl_Button(215, y, 165, 40, "Back and Save");
-  style_btn(bb, C_ACCENT, FL_WHITE);
-  bb->labelfont(FL_HELVETICA_BOLD);
-  bb->callback(switch_view_cb, (void *)0);
+  auto *t_set = new Fl_Box(0, 30, 630, 45, "Keybinds");
+  t_set->labelcolor(C_TEXT);
+  t_set->labelfont(FL_HELVETICA_BOLD);
+  t_set->labelsize(28);
 
-  y += 60;
-  auto *ft = new Fl_Box(290, y, 100, 20, "Created by");
-  ft->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-  ft->labelsize(11);
-  ft->labelcolor(C_TEXT);
+  int y_pos = 100;
+  make_bind_row(y_pos, "Test 360", cfg.test, 0);
+  make_bind_row(y_pos, "Add +50", cfg.plus, 1);
+  make_bind_row(y_pos, "Sub -50", cfg.minus, 2);
+  make_bind_row(y_pos, "Fine Tune (+)", cfg.f_plus, 3);
+  make_bind_row(y_pos, "Fine Tune (-)", cfg.f_minus, 4);
+  make_bind_row(y_pos, "Cancel Move", cfg.cancel, 5);
 
-  auto *gb = new Fl_Button(347, y + 1, 65, 20, "Diabloget");
-  style_btn(gb, C_BG, C_RED);
-  gb->box(FL_NO_BOX);
-  gb->labelfont(FL_HELVETICA_BOLD);
-  gb->labelsize(11);
-  gb->callback(link_cb, (void *)0);
+  auto *footer = new Fl_Button(0, 445, 630, 30, "Created by Diabloget");
+  style_btn(footer, C_BG, C_ACCENT);
+  footer->box(FL_NO_BOX);
+  footer->labelsize(14);
+  footer->callback(link_cb, (void *)0);
+
   settings_grp->end();
 
   win->end();
-  win->show();
+  win->show(argc, argv);
   return Fl::run();
 }
