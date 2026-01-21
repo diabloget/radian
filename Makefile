@@ -1,4 +1,5 @@
 APP_NAME = radian
+APP_ID = io.github.diabloget.radian
 FLTK_CONFIG = /usr/local/bin/fltk-config
 CXX = g++
 APPIMAGETOOL = ./appimagetool-x86_64.AppImage
@@ -35,7 +36,7 @@ build:
 
 appimage: build
 	@echo "Creating AppDir structure..."
-	mkdir -p $(APPDIR)/usr/{bin,lib,share/icons/hicolor/256x256/apps,lib/libdecor/plugins-1}
+	mkdir -p $(APPDIR)/usr/{bin,lib,share/icons/hicolor/256x256/apps,lib/libdecor/plugins-1,share/metainfo,share/applications}
 	
 	install -m 755 $(APP_NAME) $(APPDIR)/usr/bin/$(APP_NAME)
 	
@@ -53,8 +54,11 @@ appimage: build
 	@echo "Installing assets..."
 	install -m 644 icon.png $(APPDIR)/radian.png
 	install -m 644 icon.png $(APPDIR)/usr/share/icons/hicolor/256x256/apps/radian.png
+	install -m 644 radian.appdata.xml $(APPDIR)/usr/share/metainfo/$(APP_ID).appdata.xml
 	install -m 755 AppRun.sh $(APPDIR)/AppRun
-	echo "$$DESKTOP_FILE" > $(APPDIR)/radian.desktop
+	
+	echo "$$DESKTOP_FILE" > $(APPDIR)/$(APP_ID).desktop
+	cp $(APPDIR)/$(APP_ID).desktop $(APPDIR)/usr/share/applications/$(APP_ID).desktop
 	
 	@echo "Generating AppImage..."
 	chmod +x $(APPIMAGETOOL)
