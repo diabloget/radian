@@ -53,6 +53,82 @@ Fl_Input *inp_profile_name;
 Fl_Choice *choice_profiles;
 vector<Fl_Button *> bind_btns;
 
+// UI Helpers
+void style_btn(Fl_Button *b, Fl_Color c = C_BTN, Fl_Color t = C_TEXT) {
+  b->box(FL_FLAT_BOX);
+  b->color(c);
+  b->labelcolor(t);
+  b->clear_visible_focus();
+}
+
+// Custom Styled Dialog
+int show_custom_dialog(const char *title, const char *msg,
+                       const char *btn_ok_txt,
+                       const char *btn_cancel_txt = nullptr) {
+  Fl_Window *win = new Fl_Window(440, 210, "Radian Alert");
+  win->color(C_BG);
+  win->set_modal();
+
+  // Header section
+  Fl_Group *header_grp = new Fl_Group(20, 20, 400, 40);
+
+  Fl_Box *icon = new Fl_Box(20, 20, 30, 30, "ℹ");
+  icon->box(FL_NO_BOX);
+  icon->labelcolor(C_ACCENT);
+  icon->labelsize(34);
+  icon->align(FL_ALIGN_CENTER | FL_ALIGN_INSIDE);
+
+  Fl_Box *header = new Fl_Box(60, 20, 340, 30, title);
+  header->box(FL_NO_BOX);
+  header->labelcolor(C_TEXT);
+  header->labelfont(FL_HELVETICA_BOLD);
+  header->labelsize(19);
+  header->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+
+  header_grp->end();
+
+  // Message body
+  Fl_Box *message = new Fl_Box(25, 70, 390, 80, msg);
+  message->box(FL_NO_BOX);
+  message->labelcolor(C_TEXT);
+  message->align(FL_ALIGN_TOP_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
+  message->labelsize(15);
+
+  // Buttons
+  int result = 0;
+  int btn_y = 160;
+  int btn_w = 130;
+  int btn_h = 35;
+
+  if (btn_cancel_txt) {
+    Fl_Button *btn_cancel =
+        new Fl_Button(30, btn_y, btn_w, btn_h, btn_cancel_txt);
+    style_btn(btn_cancel, C_BTN, C_TEXT);
+    btn_cancel->callback(
+        [](Fl_Widget *w, void *v) {
+          *(int *)v = 0;
+          w->window()->hide();
+        },
+        &result);
+  }
+
+  int ok_x = btn_cancel_txt ? (440 - 30 - btn_w) : (440 / 2 - btn_w / 2);
+  Fl_Button *btn_ok = new Fl_Button(ok_x, btn_y, btn_w, btn_h, btn_ok_txt);
+  style_btn(btn_ok, C_ACCENT, FL_WHITE);
+  btn_ok->callback(
+      [](Fl_Widget *w, void *v) {
+        *(int *)v = 1;
+        w->window()->hide();
+      },
+      &result);
+
+  win->show();
+  while (win->shown())
+    Fl::wait();
+  delete win;
+  return result;
+}
+
 // Dynamic Path Logic
 string get_config_path() {
   const char *appimage_path = getenv("APPIMAGE");
@@ -146,30 +222,32 @@ bool is_in_input_group() {
 }
 
 bool setup_permissions() {
-  const string udev_rule =
-      "KERNEL==\\\"uinput\\\", MODE=\\\"0660\\\", GROUP=\\\"input\\\", "
-      "OPTIONS+=\\\"static_node=uinput\\\"";
-
   const char *user = getenv("USER");
   if (!user) {
     struct passwd *pw = getpwuid(getuid());
     user = pw ? pw->pw_name : "nobody";
   }
 
+  // Explicitly load module, add group, and FORCE permissions
   stringstream cmd;
   cmd << "pkexec sh -c '";
-  cmd << "echo \"" << udev_rule
-      << "\" > /etc/udev/rules.d/99-radian-input.rules && ";
-  cmd << "chmod 644 /etc/udev/rules.d/99-radian-input.rules && ";
-  cmd << "udevadm control --reload-rules && ";
-  cmd << "udevadm trigger && ";
-  cmd << "usermod -a -G input " << user;
+  cmd << "modprobe uinput; ";
+  cmd << "groupadd -f input; ";
+  cmd << "usermod -a -G input " << user << "; ";
+  cmd << "echo \"KERNEL==\\\"uinput\\\", MODE=\\\"0660\\\", "
+         "GROUP=\\\"input\\\", OPTIONS+=\\\"static_node=uinput\\\"\" > "
+         "/etc/udev/rules.d/99-radian-input.rules; ";
+  cmd << "udevadm control --reload-rules; ";
+  cmd << "udevadm trigger; ";
+  // Permissions are applied manually to avoid failure
+  cmd << "chown root:input /dev/uinput; ";
+  cmd << "chmod 0660 /dev/uinput";
   cmd << "'";
 
   return system(cmd.str().c_str()) == 0;
 }
 
-// Virtual Mouse for the Kernel
+// Virtual Mouse
 class VirtualMouse {
   int fd;
 
@@ -322,14 +400,6 @@ void keyboard_loop(VirtualMouse *mouse) {
     close(fd);
 }
 
-// UI Helpers
-void style_btn(Fl_Button *b, Fl_Color c = C_BTN, Fl_Color t = C_TEXT) {
-  b->box(FL_FLAT_BOX);
-  b->color(c);
-  b->labelcolor(t);
-  b->clear_visible_focus();
-}
-
 void refresh_profile_menu() {
   choice_profiles->clear();
   for (const auto &p : profiles)
@@ -442,33 +512,44 @@ void make_bind_row(int &y, const char *lbl, int key_code, int cap_idx) {
 }
 
 int main(int argc, char **argv) {
+  Fl::scheme("gtk+");
+
   if (!check_uinput_access()) {
-    Fl::lock();
-    int choice =
-        fl_choice("Radian needs access to input devices to work.\n\n"
-                  "This is a ONE-TIME setup that requires your password.\n"
-                  "After this, the app will work without root privileges.\n\n"
-                  "Setup now?",
-                  "Cancel", "Yes, Setup", NULL);
+    int choice = show_custom_dialog(
+        "Permissions Required",
+        "Radian needs direct access to input devices.\n"
+        "This requires a ONE-TIME setup with your password.\n\n"
+        "After this, it will not ask for root again.",
+        "Setup", "Not Now");
 
     if (choice == 1) {
-      fl_message("Setting up permissions...\nPlease enter your password when "
-                 "prompted.");
-
       if (setup_permissions()) {
-        if (!is_in_input_group()) {
-          fl_alert(
-              "Setup complete!\n\n"
-              "Please LOG OUT and LOG BACK IN for changes to take effect.\n"
-              "After that, Radian will work normally.");
-          return 0;
+        if (check_uinput_access()) {
+          if (!is_in_input_group()) {
+            show_custom_dialog(
+                "Setup Complete",
+                "Permissions applied.\n"
+                "Please LOG OUT and LOG IN once to finalize access.",
+                "OK");
+            return 0;
+          } else {
+            show_custom_dialog("Success",
+                               "Permissions active.\nRestarting application...",
+                               "OK");
+            execvp(argv[0], argv);
+          }
         } else {
-          fl_message("Setup complete!\n\nRestarting application...");
-          execvp(argv[0], argv);
+          show_custom_dialog("Setup Complete",
+                             "Please LOG OUT and LOG IN to apply changes.\n"
+                             "Radian will work normally afterwards.",
+                             "OK");
+          return 0;
         }
       } else {
-        fl_alert("Setup failed. Please check your password or system "
-                 "configuration.");
+        show_custom_dialog("Setup Failed",
+                           "Could not apply permissions.\n"
+                           "Check your password or system config.",
+                           "Close");
         return 1;
       }
     } else {
@@ -479,15 +560,16 @@ int main(int argc, char **argv) {
   load_data();
 
   Fl::lock();
-  Fl::scheme("gtk+");
   Fl_Tooltip::delay(0.1f);
   Fl_Tooltip::color(C_PANEL);
   Fl_Tooltip::textcolor(C_TEXT);
 
   VirtualMouse vMouse;
   if (!vMouse.is_valid()) {
-    fl_alert("Failed to create virtual mouse device.\n"
-             "Ensure the udev rules are correctly applied.");
+    show_custom_dialog("Error",
+                       "Failed to create virtual mouse.\n"
+                       "Check udev rules.",
+                       "Close");
     return 1;
   }
 
@@ -520,7 +602,6 @@ int main(int argc, char **argv) {
   mb->labelsize(12);
   mb->callback(switch_view_cb, (void *)1);
 
-  // Round Info Button
   auto *h = new Fl_Button(378, 11, 28, 28, "ℹ");
   h->box(FL_OVAL_BOX);
   h->color(C_ACCENT);
@@ -584,7 +665,6 @@ int main(int argc, char **argv) {
   b_back->labelsize(12);
   b_back->callback(switch_view_cb, (void *)0);
 
-  // Round Default Button
   auto *b_reset = new Fl_Button(378, 11, 28, 28, "⟲");
   b_reset->box(FL_OVAL_BOX);
   b_reset->color(C_ACCENT);
