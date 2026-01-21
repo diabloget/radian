@@ -1,9 +1,16 @@
-# Radian AppImage Build System
 APP_NAME = radian
+FLTK_CONFIG = /usr/local/bin/fltk-config
 CXX = g++
-CXXFLAGS = $(shell fltk-config --cxxflags) $(shell pkg-config --cflags libevdev) -O2 -Wall
-LDFLAGS = $(shell fltk-config --ldflags) $(shell pkg-config --libs libevdev)
+APPIMAGETOOL = ./appimagetool-x86_64.AppImage
 APPDIR = Radian.AppDir
+
+CXXFLAGS = $(shell $(FLTK_CONFIG) --cxxflags) \
+           $(shell pkg-config --cflags libevdev) \
+           -O2 -Wall
+
+LDFLAGS = $(shell $(FLTK_CONFIG) --ldstaticflags) \
+          $(shell pkg-config --libs libevdev wayland-client wayland-cursor wayland-egl xkbcommon) \
+          -lpthread -ldl
 
 define DESKTOP_FILE
 [Desktop Entry]
@@ -21,60 +28,44 @@ export DESKTOP_FILE
 all: clean build appimage
 
 build:
-	@echo ">> Compiling binary..."
+	@echo "Compiling $(APP_NAME)..."
 	$(CXX) main.cpp -o $(APP_NAME) $(CXXFLAGS) $(LDFLAGS)
 	strip $(APP_NAME)
+	@echo "Build complete: $(APP_NAME)"
 
 appimage: build
-	@echo ">> Preparing AppDir structure..."
-	mkdir -p $(APPDIR)/usr/bin
-	mkdir -p $(APPDIR)/usr/lib
-	mkdir -p $(APPDIR)/usr/share/icons/hicolor/256x256/apps
+	@echo "Creating AppDir structure..."
+	mkdir -p $(APPDIR)/usr/{bin,lib,share/icons/hicolor/256x256/apps,lib/libdecor/plugins-1}
 	
 	install -m 755 $(APP_NAME) $(APPDIR)/usr/bin/$(APP_NAME)
 	
-	@echo ">> Copying shared libraries..."
-	# Copy all dependencies from ldd output
-	ldd $(APP_NAME) | grep "=> /" | awk '{print $$3}' | while read lib; do \
-		if [ -f "$$lib" ]; then \
-			cp -v "$$lib" $(APPDIR)/usr/lib/ 2>/dev/null || true; \
-		fi; \
-	done
+	@echo "Bundling runtime dependencies..."
+	@ldd $(APP_NAME) | grep "libstdc++\.so" | awk '{print $$3}' | xargs -I {} cp -L {} $(APPDIR)/usr/lib/ 2>/dev/null || true
+	@ldd $(APP_NAME) | grep "libgcc_s\.so" | awk '{print $$3}' | xargs -I {} cp -L {} $(APPDIR)/usr/lib/ 2>/dev/null || true
+	@ldd $(APP_NAME) | grep "libevdev\.so" | awk '{print $$3}' | xargs -I {} cp -L {} $(APPDIR)/usr/lib/ 2>/dev/null || true
 	
-	# Ensure critical libraries are included
-	cp -v /usr/lib*/libfltk*.so* $(APPDIR)/usr/lib/ 2>/dev/null || true
-	cp -v /usr/lib/x86_64-linux-gnu/libfltk*.so* $(APPDIR)/usr/lib/ 2>/dev/null || true
-	cp -v /usr/lib*/libevdev*.so* $(APPDIR)/usr/lib/ 2>/dev/null || true
-	cp -v /usr/lib/x86_64-linux-gnu/libevdev*.so* $(APPDIR)/usr/lib/ 2>/dev/null || true
-	cp -v /usr/lib*/libX*.so* $(APPDIR)/usr/lib/ 2>/dev/null || true
-	cp -v /usr/lib/x86_64-linux-gnu/libX*.so* $(APPDIR)/usr/lib/ 2>/dev/null || true
-	cp -v /usr/lib*/libfontconfig*.so* $(APPDIR)/usr/lib/ 2>/dev/null || true
-	cp -v /usr/lib*/libfreetype*.so* $(APPDIR)/usr/lib/ 2>/dev/null || true
-	cp -v /usr/lib/x86_64-linux-gnu/libfontconfig*.so* $(APPDIR)/usr/lib/ 2>/dev/null || true
-	cp -v /usr/lib/x86_64-linux-gnu/libfreetype*.so* $(APPDIR)/usr/lib/ 2>/dev/null || true
+	@cp -L /usr/lib64/libdecor-0.so* $(APPDIR)/usr/lib/ 2>/dev/null || \
+	 cp -L /usr/lib/x86_64-linux-gnu/libdecor-0.so* $(APPDIR)/usr/lib/ 2>/dev/null || true
 	
-	@echo ">> Installing icon..."
+	@cp -L /usr/lib64/libdecor/plugins-1/*.so $(APPDIR)/usr/lib/libdecor/plugins-1/ 2>/dev/null || \
+	 cp -L /usr/lib/x86_64-linux-gnu/libdecor/plugins-1/*.so $(APPDIR)/usr/lib/libdecor/plugins-1/ 2>/dev/null || true
+	
+	@echo "Installing assets..."
 	install -m 644 icon.png $(APPDIR)/radian.png
 	install -m 644 icon.png $(APPDIR)/usr/share/icons/hicolor/256x256/apps/radian.png
-	
-	@echo ">> Installing desktop file..."
-	@echo "$$DESKTOP_FILE" > $(APPDIR)/radian.desktop
-	chmod 644 $(APPDIR)/radian.desktop
-	
 	install -m 755 AppRun.sh $(APPDIR)/AppRun
+	echo "$$DESKTOP_FILE" > $(APPDIR)/radian.desktop
 	
-	@echo ">> Packaging AppImage..."
-	ARCH=x86_64 ./appimagetool-x86_64.AppImage $(APPDIR) Radian-x86_64.AppImage
-	chmod +x Radian-x86_64.AppImage
+	@echo "Generating AppImage..."
+	chmod +x $(APPIMAGETOOL)
+	ARCH=x86_64 $(APPIMAGETOOL) $(APPDIR) $(APP_NAME)-x86_64.AppImage
 	
-	@echo ">> Verifying dependencies..."
-	@./Radian-x86_64.AppImage --appimage-extract >/dev/null 2>&1
-	@ldd squashfs-root/usr/bin/radian | grep "not found" && echo "WARNING: Missing dependencies!" || echo "All dependencies OK!"
-	@rm -rf squashfs-root
+	@echo "Build complete: $(APP_NAME)-x86_64.AppImage"
+	@du -h $(APP_NAME)-x86_64.AppImage
 
 clean:
 	rm -f $(APP_NAME)
 	rm -rf $(APPDIR)
-	rm -f Radian-x86_64.AppImage
+	rm -f $(APP_NAME)-x86_64.AppImage
 
 .PHONY: all build appimage clean

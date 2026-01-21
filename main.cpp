@@ -7,14 +7,16 @@
 #include <FL/Fl_Tooltip.H>
 #include <FL/Fl_Value_Input.H>
 #include <FL/Fl_Window.H>
-#include <FL/fl_draw.H>
+#include <FL/fl_ask.H>
 
 #include <atomic>
 #include <cstdio>
 #include <fcntl.h>
 #include <fstream>
+#include <grp.h>
 #include <libevdev/libevdev.h>
 #include <linux/uinput.h>
+#include <pwd.h>
 #include <sstream>
 #include <sys/stat.h>
 #include <thread>
@@ -53,15 +55,22 @@ vector<Fl_Button *> bind_btns;
 
 // Dynamic Path Logic
 string get_config_path() {
-  const char *appimage_env = getenv("APPIMAGE");
-  if (appimage_env) {
-    string full_path(appimage_env);
+  const char *appimage_path = getenv("APPIMAGE");
+  if (appimage_path) {
+    string full_path(appimage_path);
     size_t last_slash = full_path.find_last_of('/');
     if (last_slash != string::npos) {
-      return full_path.substr(0, last_slash + 1) + "radian.cfg";
+      string dir = full_path.substr(0, last_slash + 1);
+      string config_path = dir + "radian.cfg";
+
+      FILE *fp = fopen(config_path.c_str(), "a+");
+      if (fp) {
+        fclose(fp);
+        return config_path;
+      }
     }
   }
-  return "radian.cfg";
+  return "./radian.cfg";
 }
 
 // IO Utils
@@ -70,35 +79,12 @@ void save_data() {
   ofstream f(path);
   if (!f.is_open())
     return;
+
   f << cfg.test << " " << cfg.plus << " " << cfg.minus << " " << cfg.f_plus
     << " " << cfg.f_minus << " " << cfg.cancel << endl;
+
   for (const auto &p : profiles)
     f << p.name << "," << p.counts << endl;
-
-  f.close();
-
-  // Makes sure the file is writable by the user
-  const char *sudo_uid = getenv("SUDO_UID");
-  const char *sudo_gid = getenv("SUDO_GID");
-  const char *pkexec_uid = getenv("PKEXEC_UID");
-
-  uid_t user_uid = -1;
-  gid_t user_gid = -1;
-
-  if (sudo_uid && sudo_gid) {
-    user_uid = atoi(sudo_uid);
-    user_gid = atoi(sudo_gid);
-  } else if (pkexec_uid) {
-    user_uid = atoi(pkexec_uid);
-    user_gid = user_uid;
-  }
-
-  if (user_uid != (uid_t)-1) {
-    if (chown(path.c_str(), user_uid, user_gid) == -1) {
-      perror("chown warning");
-    }
-  }
-  chmod(path.c_str(), 0644);
 }
 
 void load_data() {
@@ -109,14 +95,15 @@ void load_data() {
     save_data();
     return;
   }
+
   string line;
   if (getline(f, line)) {
     stringstream ss(line);
     ss >> cfg.test >> cfg.plus >> cfg.minus >> cfg.f_plus >> cfg.f_minus;
-    if (!(ss >> cfg.cancel)) {
+    if (!(ss >> cfg.cancel))
       cfg.cancel = KEY_BACKSPACE;
-    }
   }
+
   profiles.clear();
   while (getline(f, line)) {
     if (line.empty())
@@ -126,22 +113,60 @@ void load_data() {
     if (getline(ss, n, ',') && getline(ss, c))
       profiles.push_back({n, stoi(c)});
   }
+
   if (profiles.empty())
     profiles.push_back({"Default", 10000});
 }
 
-void refresh_profile_menu() {
-  choice_profiles->clear();
-  for (const auto &p : profiles)
-    choice_profiles->add(p.name.c_str());
-  for (int i = 0; i < choice_profiles->size(); i++)
-    ((Fl_Menu_Item *)choice_profiles->menu())[i].labelcolor(C_TEXT);
+// System Integration
+bool check_uinput_access() {
+  int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+  if (fd >= 0) {
+    close(fd);
+    return true;
+  }
+  return false;
+}
 
-  if (choice_profiles->size() > 0) {
-    choice_profiles->value(0);
+bool is_in_input_group() {
+  int ngroups = 0;
+  getgrouplist(getenv("USER") ?: "nobody", getgid(), NULL, &ngroups);
+  vector<gid_t> groups(ngroups);
+  getgrouplist(getenv("USER") ?: "nobody", getgid(), groups.data(), &ngroups);
+
+  struct group *input_grp = getgrnam("input");
+  if (!input_grp)
+    return false;
+
+  for (int i = 0; i < ngroups; i++) {
+    if (groups[i] == input_grp->gr_gid)
+      return true;
+  }
+  return false;
+}
+
+bool setup_permissions() {
+  const string udev_rule =
+      "KERNEL==\\\"uinput\\\", MODE=\\\"0660\\\", GROUP=\\\"input\\\", "
+      "OPTIONS+=\\\"static_node=uinput\\\"";
+
+  const char *user = getenv("USER");
+  if (!user) {
+    struct passwd *pw = getpwuid(getuid());
+    user = pw ? pw->pw_name : "nobody";
   }
 
-  choice_profiles->redraw();
+  stringstream cmd;
+  cmd << "pkexec sh -c '";
+  cmd << "echo \"" << udev_rule
+      << "\" > /etc/udev/rules.d/99-radian-input.rules && ";
+  cmd << "chmod 644 /etc/udev/rules.d/99-radian-input.rules && ";
+  cmd << "udevadm control --reload-rules && ";
+  cmd << "udevadm trigger && ";
+  cmd << "usermod -a -G input " << user;
+  cmd << "'";
+
+  return system(cmd.str().c_str()) == 0;
 }
 
 // Virtual Mouse for the Kernel
@@ -149,29 +174,44 @@ class VirtualMouse {
   int fd;
 
 public:
-  VirtualMouse() {
+  VirtualMouse() : fd(-1) {
     fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
     if (fd < 0)
       return;
+
     ioctl(fd, UI_SET_EVBIT, EV_KEY);
     ioctl(fd, UI_SET_KEYBIT, BTN_LEFT);
     ioctl(fd, UI_SET_EVBIT, EV_REL);
     ioctl(fd, UI_SET_RELBIT, REL_X);
     ioctl(fd, UI_SET_RELBIT, REL_Y);
+
     struct uinput_user_dev uidev = {};
     snprintf(uidev.name, UINPUT_MAX_NAME_SIZE, "Radian-Input");
     uidev.id.bustype = BUS_USB;
     uidev.id.vendor = 0x1;
     uidev.id.product = 0x1;
     uidev.id.version = 1;
-    (void)!write(fd, &uidev, sizeof(uidev));
+
+    if (write(fd, &uidev, sizeof(uidev)) < 0) {
+      close(fd);
+      fd = -1;
+      return;
+    }
     ioctl(fd, UI_DEV_CREATE);
     sleep(1);
   }
 
-  // Allows for cancelable mouse movement
+  ~VirtualMouse() {
+    if (fd >= 0) {
+      ioctl(fd, UI_DEV_DESTROY);
+      close(fd);
+    }
+  }
+
+  bool is_valid() const { return fd >= 0; }
+
   void move_async(int total) {
-    if (fd < 0)
+    if (fd < 0 || total <= 0)
       return;
 
     movement_active = true;
@@ -179,29 +219,27 @@ public:
     struct input_event ev = {};
 
     while (moved < total && movement_active) {
-      int step = (total - moved > chunk) ? chunk : (total - moved);
+      int step = min(chunk, total - moved);
       ev.type = EV_REL;
       ev.code = REL_X;
       ev.value = step;
-      (void)!write(fd, &ev, sizeof(ev));
+      write(fd, &ev, sizeof(ev));
       ev.type = EV_SYN;
       ev.code = SYN_REPORT;
       ev.value = 0;
-      (void)!write(fd, &ev, sizeof(ev));
+      write(fd, &ev, sizeof(ev));
+
       moved += step;
       this_thread::sleep_for(chrono::milliseconds(1));
     }
-
     movement_active = false;
   }
 
-  // Thread needed for both mouse movement and keyboard listening
   void move(int total) {
     if (movement_active) {
       movement_active = false;
       this_thread::sleep_for(chrono::milliseconds(50));
     }
-
     thread([this, total]() { this->move_async(total); }).detach();
   }
 };
@@ -209,17 +247,26 @@ public:
 void keyboard_loop(VirtualMouse *mouse) {
   struct libevdev *dev = NULL;
   int fd = -1;
+
   for (int i = 0; i < 32; i++) {
     string p = "/dev/input/event" + to_string(i);
     fd = open(p.c_str(), O_RDONLY | O_NONBLOCK);
-    if (fd >= 0 && libevdev_new_from_fd(fd, &dev) >= 0 &&
-        libevdev_has_event_code(dev, EV_KEY, KEY_ENTER))
-      break;
-    if (fd >= 0) {
+    if (fd >= 0 && libevdev_new_from_fd(fd, &dev) >= 0) {
+      if (libevdev_has_event_code(dev, EV_KEY, KEY_ENTER) &&
+          libevdev_has_event_code(dev, EV_KEY, KEY_A) &&
+          !libevdev_has_event_code(dev, EV_REL, REL_X)) {
+        break;
+      }
+      libevdev_free(dev);
+      close(fd);
+      fd = -1;
+      dev = NULL;
+    } else if (fd >= 0) {
       close(fd);
       fd = -1;
     }
   }
+
   if (fd < 0)
     return;
 
@@ -227,32 +274,35 @@ void keyboard_loop(VirtualMouse *mouse) {
     struct input_event ev;
     if (libevdev_next_event(dev, LIBEVDEV_READ_FLAG_NORMAL, &ev) == 0 &&
         ev.type == EV_KEY && ev.value == 1) {
+
       int cap = capturing_mode.load();
 
       if (cap != -1) {
-        // Keybind capture
         int *targets[] = {&cfg.test,   &cfg.plus,    &cfg.minus,
                           &cfg.f_plus, &cfg.f_minus, &cfg.cancel};
-        *targets[cap] = ev.code;
-        capturing_mode = -1;
-        Fl::lock();
-        bind_btns[cap]->label(libevdev_event_code_get_name(EV_KEY, ev.code));
-        Fl::unlock();
-        Fl::awake();
+        if (cap >= 0 && cap < 6) {
+          *targets[cap] = ev.code;
+          capturing_mode = -1;
+
+          Fl::lock();
+          bind_btns[cap]->label(libevdev_event_code_get_name(EV_KEY, ev.code));
+          Fl::unlock();
+          Fl::awake();
+        }
       } else {
-        // This section is to verify if the movement was canceled
         if (ev.code == cfg.cancel && movement_active) {
           movement_active = false;
-        } else if (ev.code == cfg.test)
+        } else if (ev.code == cfg.test) {
           mouse->move(raw_counts);
-        else if (ev.code == cfg.plus)
+        } else if (ev.code == cfg.plus) {
           raw_counts += 50;
-        else if (ev.code == cfg.minus)
+        } else if (ev.code == cfg.minus) {
           raw_counts -= 50;
-        else if (ev.code == cfg.f_plus)
+        } else if (ev.code == cfg.f_plus) {
           raw_counts += 1;
-        else if (ev.code == cfg.f_minus)
+        } else if (ev.code == cfg.f_minus) {
           raw_counts -= 1;
+        }
 
         if (raw_counts < 0)
           raw_counts = 0;
@@ -265,6 +315,11 @@ void keyboard_loop(VirtualMouse *mouse) {
     }
     this_thread::sleep_for(chrono::milliseconds(5));
   }
+
+  if (dev)
+    libevdev_free(dev);
+  if (fd >= 0)
+    close(fd);
 }
 
 // UI Helpers
@@ -273,6 +328,19 @@ void style_btn(Fl_Button *b, Fl_Color c = C_BTN, Fl_Color t = C_TEXT) {
   b->color(c);
   b->labelcolor(t);
   b->clear_visible_focus();
+}
+
+void refresh_profile_menu() {
+  choice_profiles->clear();
+  for (const auto &p : profiles)
+    choice_profiles->add(p.name.c_str());
+
+  for (int i = 0; i < choice_profiles->size(); i++)
+    ((Fl_Menu_Item *)choice_profiles->menu())[i].labelcolor(C_TEXT);
+
+  if (choice_profiles->size() > 0)
+    choice_profiles->value(0);
+  choice_profiles->redraw();
 }
 
 void switch_view_cb(Fl_Widget *, void *v) {
@@ -294,7 +362,6 @@ void reset_defaults_cb(Fl_Widget *, void *) {
   cfg.f_minus = KEY_MINUS;
   cfg.cancel = KEY_BACKSPACE;
 
-  // We rely on the creation order of bind_btns
   if (bind_btns.size() >= 6) {
     bind_btns[0]->copy_label(libevdev_event_code_get_name(EV_KEY, cfg.test));
     bind_btns[1]->copy_label(libevdev_event_code_get_name(EV_KEY, cfg.plus));
@@ -353,26 +420,64 @@ void save_profile_cb(Fl_Widget *, void *) {
 }
 
 void make_bind_row(int &y, const char *lbl, int key_code, int cap_idx) {
-  auto *l = new Fl_Box(60, y, 150, 40, lbl);
+  auto *l = new Fl_Box(30, y, 120, 30, lbl);
   l->labelcolor(C_TEXT);
-  l->labelsize(16);
+  l->labelsize(14);
   l->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-  auto *b = new Fl_Button(240, y, 330, 40);
+
+  auto *b = new Fl_Button(160, y, 220, 30);
   b->copy_label(libevdev_event_code_get_name(EV_KEY, key_code));
-  b->labelsize(14);
+  b->labelsize(13);
   style_btn(b);
+
   b->callback(
       [](Fl_Widget *w, void *v) {
         w->label("WAITING...");
         capturing_mode = (int)(long)v;
       },
       (void *)(long)cap_idx);
+
   bind_btns.push_back(b);
-  y += 55;
+  y += 38;
 }
 
 int main(int argc, char **argv) {
+  if (!check_uinput_access()) {
+    Fl::lock();
+    int choice =
+        fl_choice("Radian needs access to input devices to work.\n\n"
+                  "This is a ONE-TIME setup that requires your password.\n"
+                  "After this, the app will work without root privileges.\n\n"
+                  "Setup now?",
+                  "Cancel", "Yes, Setup", NULL);
+
+    if (choice == 1) {
+      fl_message("Setting up permissions...\nPlease enter your password when "
+                 "prompted.");
+
+      if (setup_permissions()) {
+        if (!is_in_input_group()) {
+          fl_alert(
+              "Setup complete!\n\n"
+              "Please LOG OUT and LOG BACK IN for changes to take effect.\n"
+              "After that, Radian will work normally.");
+          return 0;
+        } else {
+          fl_message("Setup complete!\n\nRestarting application...");
+          execvp(argv[0], argv);
+        }
+      } else {
+        fl_alert("Setup failed. Please check your password or system "
+                 "configuration.");
+        return 1;
+      }
+    } else {
+      return 0;
+    }
+  }
+
   load_data();
+
   Fl::lock();
   Fl::scheme("gtk+");
   Fl_Tooltip::delay(0.1f);
@@ -380,45 +485,55 @@ int main(int argc, char **argv) {
   Fl_Tooltip::textcolor(C_TEXT);
 
   VirtualMouse vMouse;
+  if (!vMouse.is_valid()) {
+    fl_alert("Failed to create virtual mouse device.\n"
+             "Ensure the udev rules are correctly applied.");
+    return 1;
+  }
+
   thread(keyboard_loop, &vMouse).detach();
 
-  Fl_Window *win = new Fl_Window(630, 480, "Radian");
+  Fl_Window *win = new Fl_Window(420, 320, "Radian");
   win->color(C_BG);
 
-  main_grp = new Fl_Group(0, 0, 630, 480);
-  auto *t = new Fl_Box(0, 30, 630, 45, "Match your sens");
+  main_grp = new Fl_Group(0, 0, 420, 320);
+  auto *t = new Fl_Box(0, 20, 420, 35, "Match your sens");
   t->labelcolor(C_ACCENT);
   t->labelfont(FL_HELVETICA_BOLD);
-  t->labelsize(33);
+  t->labelsize(28);
 
-  auto *st = new Fl_Box(357, 67, 150, 30, "with ");
+  auto *st = new Fl_Box(240, 52, 100, 30, "with ");
   st->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-  st->labelsize(16);
+  st->labelsize(15);
   st->labelcolor(C_TEXT);
 
-  auto *br = new Fl_Button(394, 67, 150, 30, "Radian");
+  auto *br = new Fl_Button(275, 52, 100, 30, "Radian");
   style_btn(br, C_BG, C_RED);
   br->box(FL_NO_BOX);
   br->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
   br->labelfont(FL_HELVETICA_BOLD);
-  br->labelsize(16);
+  br->labelsize(15);
   br->callback(link_cb, (void *)1);
 
-  auto *mb = new Fl_Button(22, 25, 82, 37, "MENU");
+  auto *mb = new Fl_Button(15, 10, 60, 30, "MENU");
   style_btn(mb);
-  mb->labelsize(16);
+  mb->labelsize(12);
   mb->callback(switch_view_cb, (void *)1);
 
-  auto *h = new Fl_Button(562, 22, 45, 45, "?");
-  style_btn(h, C_ACCENT, FL_WHITE);
-  h->labelsize(18);
+  // Round Info Button
+  auto *h = new Fl_Button(378, 11, 28, 28, "ℹ");
+  h->box(FL_OVAL_BOX);
+  h->color(C_ACCENT);
+  h->labelcolor(FL_WHITE);
+  h->labelsize(14);
+  h->clear_visible_focus();
   h->tooltip("CONTROLS:\n[8] Do 360\n[0] Increase (+50)\n[9] Decrease "
              "(-50)\n[-/+] Fine Tune (1)\n[BKSP] Cancel Movement");
 
-  choice_profiles = new Fl_Choice(90, 130, 450, 45);
+  choice_profiles = new Fl_Choice(60, 95, 300, 30);
   choice_profiles->color(C_BTN);
   choice_profiles->textcolor(C_TEXT);
-  choice_profiles->textsize(20);
+  choice_profiles->textsize(15);
   choice_profiles->clear_visible_focus();
   choice_profiles->callback([](Fl_Widget *, void *) {
     int idx = choice_profiles->value();
@@ -430,12 +545,12 @@ int main(int argc, char **argv) {
   });
   refresh_profile_menu();
 
-  val_input = new Fl_Value_Input(90, 205, 450, 45, "Raw Counts");
+  val_input = new Fl_Value_Input(60, 142, 300, 30, "Raw Counts");
   val_input->color(C_BTN);
   val_input->textcolor(C_ACCENT);
   val_input->labelcolor(C_TEXT);
-  val_input->textsize(21);
-  val_input->labelsize(18);
+  val_input->textsize(16);
+  val_input->labelsize(13);
   val_input->align(FL_ALIGN_TOP_LEFT);
   val_input->value(raw_counts);
   val_input->clear_visible_focus();
@@ -443,44 +558,48 @@ int main(int argc, char **argv) {
     raw_counts = (int)((Fl_Value_Input *)w)->value();
   });
 
-  inp_profile_name = new Fl_Input(90, 290, 450, 45, "Profile Name");
+  inp_profile_name = new Fl_Input(60, 195, 300, 30, "Profile Name");
   inp_profile_name->color(C_BTN);
   inp_profile_name->textcolor(C_TEXT);
   inp_profile_name->labelcolor(C_TEXT);
-  inp_profile_name->textsize(20);
-  inp_profile_name->labelsize(18);
+  inp_profile_name->textsize(15);
+  inp_profile_name->labelsize(13);
   inp_profile_name->align(FL_ALIGN_TOP_LEFT);
   if (!profiles.empty())
     inp_profile_name->value(profiles[0].name.c_str());
 
-  auto *btn_save = new Fl_Button(90, 370, 450, 45, "SAVE PROFILE");
+  auto *btn_save = new Fl_Button(60, 248, 300, 35, "SAVE PROFILE");
   style_btn(btn_save, C_ACCENT, FL_WHITE);
   btn_save->labelfont(FL_HELVETICA_BOLD);
-  btn_save->labelsize(16);
+  btn_save->labelsize(14);
   btn_save->callback(save_profile_cb);
 
   main_grp->end();
 
-  settings_grp = new Fl_Group(0, 0, 630, 480);
+  settings_grp = new Fl_Group(0, 0, 420, 320);
   settings_grp->hide();
 
-  auto *b_back = new Fl_Button(22, 25, 82, 37, "BACK");
+  auto *b_back = new Fl_Button(15, 10, 60, 30, "BACK");
   style_btn(b_back);
-  b_back->labelsize(16);
+  b_back->labelsize(12);
   b_back->callback(switch_view_cb, (void *)0);
 
-  auto *b_reset = new Fl_Button(562, 25, 45, 37, "DEF");
-  style_btn(b_reset, C_ACCENT, FL_WHITE);
+  // Round Default Button
+  auto *b_reset = new Fl_Button(378, 11, 28, 28, "⟲");
+  b_reset->box(FL_OVAL_BOX);
+  b_reset->color(C_ACCENT);
+  b_reset->labelcolor(FL_WHITE);
   b_reset->labelsize(16);
+  b_reset->clear_visible_focus();
   b_reset->tooltip("Set Default Values");
   b_reset->callback(reset_defaults_cb);
 
-  auto *t_set = new Fl_Box(0, 30, 630, 45, "Keybinds");
+  auto *t_set = new Fl_Box(0, 10, 420, 30, "Keybinds");
   t_set->labelcolor(C_TEXT);
   t_set->labelfont(FL_HELVETICA_BOLD);
-  t_set->labelsize(28);
+  t_set->labelsize(22);
 
-  int y_pos = 100;
+  int y_pos = 50;
   make_bind_row(y_pos, "Test 360", cfg.test, 0);
   make_bind_row(y_pos, "Add +50", cfg.plus, 1);
   make_bind_row(y_pos, "Sub -50", cfg.minus, 2);
@@ -488,10 +607,10 @@ int main(int argc, char **argv) {
   make_bind_row(y_pos, "Fine Tune (-)", cfg.f_minus, 4);
   make_bind_row(y_pos, "Cancel Move", cfg.cancel, 5);
 
-  auto *footer = new Fl_Button(0, 445, 630, 30, "Created by Diabloget");
+  auto *footer = new Fl_Button(0, 290, 420, 30, "Created by Diabloget");
   style_btn(footer, C_BG, C_ACCENT);
   footer->box(FL_NO_BOX);
-  footer->labelsize(14);
+  footer->labelsize(12);
   footer->callback(link_cb, (void *)0);
 
   settings_grp->end();
