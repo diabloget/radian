@@ -5,14 +5,16 @@ Radian is a precision tool for Linux designed to synchronize 360-degree rotation
 ![Project Showcase](./docs/showcase.png)
 
 ## Usage
+
 1. Download the .AppImage file in the Release section.
-2. Executing it will ask you for your sudo password. Radian needs this in order to create a virtual device.
+2. Executing it may ask you for your a sudo/root password. Radian needs this only once in order to set up uinput.
 3. You can change any keybind within the menu tab in the App. Useful if the default ones are already in use by the game.
 4. If the game allows for it, go into a local match or training session, set the center of the screen or game crosshair on top of an object as reference.
 5. By default number 8 will attempt a 360, 9 decreases, 0 increases. Both 9 and 0 move by 50, while the following - and + keys allows for units (- or + 1).
 6. Once you nailed the 360 in your first game, you can launch a different game and use the current 360 value by pressing 8 and adjust the sensitivity multiplier of this game to match the 360 as close as possible.
 7. You can change the Profile Name and click the save profile button for future uses. All the settings and profiles shoudl be saved in a radian.cfg file.
-Note: The radian.cfg file will store the keybinds in the first line separated by space, but any line after that represents a saved profile in a classic CSV format 'Profile Name','Raw Counts Value'.
+
+**Note:** The radian.cfg file will store the keybinds in the first line separated by space, but any line after that represents a saved profile in a classic CSV format 'Profile Name','Raw Counts Value'.
 
 ## Getting Started
 
@@ -20,88 +22,111 @@ These instructions will help you get a copy of the project up and running on you
 
 ### Prerequisites
 
-To compile and run Radian, you need a Linux environment (tested on Solus and KDE/GNOME-based environments) and the following development libraries installed:
+To compile and run Radian, you need a Linux environment and the **FLTK 1.4** library (you may need to compile it from source).
 
-* C++ Compiler (GCC/G++)
-* FLTK (Fast Light Toolkit)
-* libevdev
-* Packaging tools (optional for AppImage): appimagetool and ImageMagick
-
-On Solus-based systems, you can install the necessary dependencies with the following command:
+**System Dependencies (Solus):**
+You need the development tools and libraries for Wayland, Cairo, Pango, and libevdev.
 
 ```bash
-sudo eopkg install fltk-devel libevdev-devel imagemagick
+# Basic development tools
+sudo eopkg install -c system.devel
+
+# Radian and FLTK dependencies
+sudo eopkg install libevdev-devel wayland-devel wayland-protocols-devel libxkbcommon-devel libcairo-devel pango-devel dbus-devel libpng-devel
 ```
 
-### Installing
 
-Follow these steps to set up your development environment:
+### Building Dependencies (FLTK 1.4)
 
-1. Clone the repository to your local machine:
+Since Radian relies on FLTK 1.4 for Wayland support and we want a static binary for AppImage portability, it is recommended to build FLTK from source.
 
+1. Clone FLTK:
 ```bash
-git clone https://github.com/diabloget/radian.git
+git clone [https://github.com/fltk/fltk.git](https://github.com/fltk/fltk.git)
+cd fltk
+mkdir build && cd build
+
+```
+
+
+2. Configure and Install (Static + Wayland):
+```bash
+cmake .. -G Ninja \
+   -D CMAKE_BUILD_TYPE=Release \
+   -D FLTK_BUILD_SHARED_LIBS=OFF \
+   -D FLTK_BUILD_STATIC=ON \
+   -D CMAKE_POSITION_INDEPENDENT_CODE=ON \
+   -D CMAKE_INSTALL_PREFIX=/usr/local \
+   -D FLTK_BUILD_TEST=OFF
+
+ninja
+sudo ninja install
+
+```
+
+
+
+### Installing Radian
+
+Once dependencies are met, follow these steps to compile Radian:
+
+1. Clone the repository:
+```bash
+git clone [https://github.com/diabloget/radian.git](https://github.com/diabloget/radian.git)
 cd radian
+
 ```
+
 
 2. Compile the binary using the provided Makefile:
-
 ```bash
 make build
-```
 
-3. Verify that the binary has been generated correctly:
-
-```bash
-ls -l radian
-```
-
-To use the program, run the binary with superuser permissions to allow access to the kernel's `uinput` module:
-
-```bash
-sudo ./radian
 ```
 
 ### Checking proper creation of virtual device
 
-You should validate that the virtual device is recognized by the operating system and that profiles are saved correctly to disk.
+You should validate that the virtual device is recognized by the operating system.
 
 ```bash
 # Verify the creation of the virtual device in kernel logs
 dmesg | grep "Radian-Input"
+
 ```
-Note that you can manually go into your DE's settings and look for a new "mouse" named 'Radian-Input-Device' or similar. Dissabling mouse acceleration here could be useful, but since acceleration is deterministic, it should stay the same across games which makes it irrelevant for the main purpose of the App.
 
-## Deployment
+**Note:** You can manually go into your DE's settings and look for a new "mouse" named 'Radian-Input-Device'. Disabling mouse acceleration here is recommended.
 
-Radian uses the AppImage format. This allows the application to run on various distributions without worrying about local dependencies.
+## Deployment (AppImage)
 
-To generate the distributable package, make sure you have `appimagetool` in the project root and run:
+Radian uses the AppImage format to run on various distributions without dependency issues.
 
+1. Ensure you have `appimagetool` installed. If not, download it:
 ```bash
-make appimage
+wget [https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage](https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage)
+chmod +x appimagetool-x86_64.AppImage
+sudo mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
+
+```
+
+
+2. Generate the distributable package:
+```bash
+make
+
 ```
 
 The result will be a `Radian-x86_64.AppImage` file ready to be shared.
 
 ## Built With
 
-* [FLTK](https://www.fltk.org/) - The graphical user interface framework
+* [FLTK 1.4](https://www.fltk.org/) - GUI framework (Wayland support)
 * [libevdev](https://www.freedesktop.org/wiki/Software/libevdev/) - Interface for kernel event handling
-* [uinput](https://kernel.org/doc/html/latest/input/uinput.html) - Kernel module for creating virtual input devices
-* [Canva](https://www.canva.com/) - Tool used for creating the application icon
+* [uinput](https://kernel.org/doc/html/latest/input/uinput.html) - Kernel module for virtual input
+* [Canva](https://www.canva.com/) - Application icon design
 
 ## Contributing
 
-This is a personal proyect, but feel free to fork the project or submit an issue. You could also add a possible solution, in case I can validate that it does fix the mentioned issue I will give you credit for it both within the code and in this README.md file. 
-
-## Special Thanks to
-
-Anyone who points critical errors or suggests relevant fixes will be shocased here :)
-
-## Versioning
-
-I am using [SemVer](http://semver.org/) for versioning. For available versions, see the [tags on this repository](https://github.com/diabloget/radian/tags).
+This is a personal project, but feel free to fork or submit an issue. If you provide a fix, I will verify it and give you credit here.
 
 ## Authors
 
@@ -109,10 +134,9 @@ I am using [SemVer](http://semver.org/) for versioning. For available versions, 
 
 ## License
 
-This project is licensed under the GNU GPLv3 License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU GPLv3 License - see the [LICENSE](https://www.google.com/search?q=LICENSE) file for details.
 
 ## Acknowledgments
 
-* Artificial intelligence (Gemini, Claude...) was used for reviewing and optimizing linear movement algorithms, as well as for technical correction of automation scripts in the Makefile and AppRun.sh structure
-* Inspired by Kovaak's Sensitivity Matcher
-* Application icon designed using Canva
+* AI assistance (Gemini, Claude) used for algorithm optimization and Makefiles.
+* Inspired by Kovaak's Sensitivity Matcher.
