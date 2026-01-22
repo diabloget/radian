@@ -42,7 +42,16 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="1.0.2" date="2026-01-21">
+    <release version="1.0.4" date="2026-01-22">
+      <description>
+        <p>Minor metadata changes and Appimage update</p>
+        <ul>
+          <li>Makefile now works both for Flatpak and Appimage</li>
+          <li>Fixed wrong release tag in metadata files</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.0.3" date="2026-01-21">
       <description>
         <p>Security improvements and Flatpak preparation</p>
         <ul>

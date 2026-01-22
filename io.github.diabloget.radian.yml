@@ -67,5 +67,7 @@ modules:
       - install -Dm644 io.github.diabloget.radian.desktop /app/share/applications/io.github.diabloget.radian.desktop
       - install -Dm644 io.github.diabloget.radian.metainfo.xml /app/share/metainfo/io.github.diabloget.radian.metainfo.xml
     sources:
-      - type: dir
-        path: .
+      - type: git
+        url: https://github.com/diabloget/radian.git
+        tag: v1.0.3
+        commit: 3526eb53661978b7f55649658350e5e2ebdeb7af
