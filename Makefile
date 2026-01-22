@@ -42,16 +42,17 @@ build:
 	strip $(APP_NAME)
 
 appimage: build
-	@echo "Creando estructura AppDir para AppImage..."
+	@echo "Creando estructura AppDir optimizada..."
 	rm -rf $(APPDIR)
 	mkdir -p $(APPDIR)/usr/{bin,lib,share/icons/hicolor/256x256/apps,lib/libdecor/plugins-1,share/metainfo,share/applications}
 	
 	install -m 755 $(APP_NAME) $(APPDIR)/usr/bin/$(APP_NAME)
 	
-	@echo "Empaquetando dependencias..."
-	@ldd $(APP_NAME) | grep "=> /" | awk '{print $$3}' | xargs -I {} cp -L {} $(APPDIR)/usr/lib/ 2>/dev/null || true
+	@echo "Empaquetando solo dependencias esenciales (Optimizado)..."
+	# Solo copiamos las librerías críticas que no siempre están en la misma versión
+	@ldd $(APP_NAME) | grep -E "libstdc\+\+|libgcc_s|libevdev|libfltk" | awk '{print $$3}' | xargs -I {} cp -L {} $(APPDIR)/usr/lib/ 2>/dev/null || true
 	
-	# Soporte Wayland (Específico para Solus/Distros modernas)
+	# Soporte Wayland/Libdecor (Solo si existen en el sistema)
 	@cp -L /usr/lib64/libdecor-0.so* $(APPDIR)/usr/lib/ 2>/dev/null || true
 	@cp -L /usr/lib64/libdecor/plugins-1/*.so $(APPDIR)/usr/lib/libdecor/plugins-1/ 2>/dev/null || true
 	
@@ -68,6 +69,7 @@ appimage: build
 	@echo "Generando AppImage final..."
 	chmod +x $(APPIMAGETOOL)
 	ARCH=x86_64 $(APPIMAGETOOL) $(APPDIR) $(APP_NAME)-x86_64.AppImage
+	@du -h $(APP_NAME)-x86_64.AppImage
 
 # This is for local testing of flatpak
 
