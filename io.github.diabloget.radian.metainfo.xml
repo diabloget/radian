@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.diabloget.radian</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Radian</name>
+  <summary>Match gaming sensitivity across different games</summary>
+  <description>
+    <p>
+      Radian helps gamers calibrate and match their mouse sensitivity across different games.
+      It measures the raw mouse counts needed for a complete 360-degree rotation,
+      allowing you to maintain consistent aim across any game.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Test 360-degree rotations with a single keypress</li>
+      <li>Fine-tune sensitivity with keyboard shortcuts while gaming</li>
+      <li>Save and manage multiple sensitivity profiles</li>
+      <li>Background operation with customizable hotkeys</li>
+      <li>Minimal resource usage</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.diabloget.radian.desktop</launchable>
+  <provides>
+    <binary>radian</binary>
+  </provides>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Main interface showing sensitivity calibration controls</caption>
+      <image>https://raw.githubusercontent.com/diabloget/radian/main/docs/main.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Keybind configuration panel</caption>
+      <image>https://raw.githubusercontent.com/diabloget/radian/main/docs/settings.png</image>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://github.com/diabloget/radian</url>
+  <url type="bugtracker">https://github.com/diabloget/radian/issues</url>
+  <url type="help">https://github.com/diabloget/radian#readme</url>
+  <developer id="io.github.diabloget">
+    <name>Diabloget</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="1.0.2" date="2026-01-21">
+      <description>
+        <p>Security improvements and Flatpak preparation</p>
+        <ul>
+          <li>Removed root permission requirements and system modifications</li>
+          <li>Improved permission handling with user-friendly guidance</li>
+          <li>Added Flatpak manifest for Flathub distribution</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.0.1" date="2026-01-21">
+      <description>
+        <ul>
+          <li>Improved Permission Dialogs.</li>
+          <li>Icon redesign.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.0.0" date="2026-01-20">
+      <description>
+        <p>Initial release</p>
+        <ul>
+          <li>Native Wayland support</li>
+          <li>Hardened Security Model</li>
+          <li>Minor UI changes</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+  <categories>
+    <category>Game</category>
+    <category>Utility</category>
+  </categories>
+  <keywords>
+    <keyword>sensitivity</keyword>
+    <keyword>gaming</keyword>
+    <keyword>mouse</keyword>
+    <keyword>calibration</keyword>
+    <keyword>aim</keyword>
+    <keyword>fps</keyword>
+  </keywords>
+  <recommends>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </recommends>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+</component>

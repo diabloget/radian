@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Radian
+GenericName=Sensitivity Matcher
+Comment=Match your gaming sensitivity across different games
+Exec=radian
+Icon=io.github.diabloget.radian
+Categories=Utility;
+Terminal=false
+StartupWMClass=io.github.diabloget.radian
+Keywords=sensitivity;gaming;mouse;calibration;aim;

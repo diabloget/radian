@@ -1,0 +1,14 @@
+# Flatpak & Builds
+.flatpak-builder/
+build-dir/
+bin/
+obj/
+
+*.AppImage
+radian
+
+flathub/
+
+# C++ 
+*.o
+*.out
