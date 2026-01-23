@@ -1,132 +1,317 @@
 # Radian
 
-Radian is a precision tool for Linux designed to synchronize 360-degree rotation distance across different games. By directly interfacing with the kernel's input subsystem using `uinput` and `libevdev`, Radian ensures deterministic and consistent horizontal movement, allowing users to calibrate their sensitivity precisely for each specific game.
+Gaming sensitivity calibration tool for Linux.
 
-![Project Showcase](./docs/showcase.png)
+Radian helps gamers match their mouse sensitivity across different games by measuring the raw mouse counts needed for a complete 360-degree rotation, allowing you to maintain consistent aim across any game.
+
+![Project Showcase](./docs/main.png)
+
+## Why Radian exists?
+
+If you play shooters often and you come from Windows, there is a fair chance you know Kovaaks the Aim Trainer. While not so known, Kovaaks also developed Sensitivity Matcher which is essentially what Radian tries to port to Linux. While Radian is slighty simpler, the main functionality is there. :)
+
+## Features
+
+- Test 360-degree rotations with a single keypress
+- Fine-tune sensitivity with keyboard shortcuts while in game
+- Save and manage multiple sensitivity profiles
+- Customizable hotkeys
+
+## How It Works
+
+Radian interfaces directly with the Linux kernel's input subsystem:
+
+- **Keyboard monitoring**: Reads from `/dev/input/eventX` devices using `libevdev` to detect global hotkeys even when other applications are in focus
+- **Mouse injection**: Creates a virtual mouse device via `/dev/uinput` to generate precise horizontal movement for calibration
+- **Configuration storage**: Saves settings and profiles to `~/.config/radian/radian.cfg` following XDG standards
+
+## Installation
+
+### Flatpak (Recommended - Coming Soon)
+
+Pending approval on Flathub. Once available:
+
+```bash
+flatpak install flathub io.github.diabloget.radian
+```
+
+### AppImage (Available Now)
+
+1. Download `radian-x86_64.AppImage` from [Releases](https://github.com/diabloget/radian/releases)
+2. Make executable: `chmod +x radian-x86_64.AppImage`
+3. Run: `./radian-x86_64.AppImage`
+
+### Required Permissions
+
+Radian needs access to input devices. On first run, you'll see a setup dialog. Run this command:
+
+```bash
+sudo usermod -aG input $USER
+```
+
+Then **log out and log back in** for the change to take effect.
+
+**Why these permissions?**
+- Reading keyboard input requires access to `/dev/input/eventX` (same as Discord for global hotkeys)
+- Creating virtual mouse requires access to `/dev/uinput` (same as game recording software)
 
 ## Usage
 
-1. Download the .AppImage file in the Release section.
-2. Executing it may ask you for your a sudo/root password. Radian needs this only once in order to set up uinput.
-3. You can change any keybind within the menu tab in the App. Useful if the default ones are already in use by the game.
-4. If the game allows for it, go into a local match or training session, set the center of the screen or game crosshair on top of an object as reference.
-5. By default number 8 will attempt a 360, 9 decreases, 0 increases. Both 9 and 0 move by 50, while the following - and + keys allows for units (- or + 1).
-6. Once you nailed the 360 in your first game, you can launch a different game and use the current 360 value by pressing 8 and adjust the sensitivity multiplier of this game to match the 360 as close as possible.
-7. You can change the Profile Name and click the save profile button for future uses. All the settings and profiles shoudl be saved in a radian.cfg file.
+### Quick Start
 
-**Note:** The radian.cfg file will store the keybinds in the first line separated by space, but any line after that represents a saved profile in a classic CSV format 'Profile Name','Raw Counts Value'.
+1. Launch Radian
+2. Start your game
+3. Press **8** to test a 360° rotation (default keybind)
+4. Adjust with **0** (increase) / **9** (decrease) until you get exactly 360°
+5. Save the profile with your game name
+6. Use the raw count value to match sensitivity across other games
 
-## Getting Started
+### Default Controls
 
-These instructions will help you get a copy of the project up and running on your local machine for development and testing purposes.
+- **8** > Test 360° rotation
+- **0** > Increase (+50 counts)
+- **9** > Decrease (-50 counts)
+- **=** > Fine tune up (+1 count)
+- **-** > Fine tune down (-1 count)
+- **Backspace** > Cancel movement
 
-### Prerequisites
+All keybinds can be customized in the MENU.
 
-To compile and run Radian, you need a Linux environment and the **FLTK 1.4** library (you may need to compile it from source).
+### Profile Management
 
-**System Dependencies (Solus):**
-You need the development tools and libraries for Wayland, Cairo, Pango, and libevdev.
+Profiles are saved in Radian's config file.
 
-```bash
-# Basic development tools
-sudo eopkg install -c system.devel
+- **Config location**: `~/.config/radian/radian.cfg`
+- **Format**:
+  - Line 1: Keybind codes (space-separated integers)
+  - Lines 2+: Profiles in CSV format: `Name,Counts`
 
-# Radian and FLTK dependencies
-sudo eopkg install libevdev-devel wayland-devel wayland-protocols-devel libxkbcommon-devel libcairo-devel pango-devel dbus-devel libpng-devel
+Example:
+```
+8 48 9 13 12 14
+Default,10000
+CS2,8234
+Valorant,9500
 ```
 
+## Building from Source
 
-### Building Dependencies (FLTK 1.4)
+### System Requirements
 
-Since Radian relies on FLTK 1.4 for Wayland support and we want a static binary for AppImage portability, it is recommended to build FLTK from source.
+- Linux with kernel 4.5+ (uinput support)
+- FLTK 1.4+ (Wayland support required)
+- libevdev
+- Development tools (gcc, make, pkg-config)
 
-1. Clone FLTK:
+### Dependencies
+
+Note: This App was built in Solus. Follow Fedora or Ubuntu dependency installations with caution since there is a high chance one of the packages is named differently.
+
+#### Solus OS
+
 ```bash
-git clone [https://github.com/fltk/fltk.git](https://github.com/fltk/fltk.git)
+# Development tools
+sudo eopkg install -c system.devel
+
+# Required libraries
+sudo eopkg install libevdev-devel wayland-devel wayland-protocols-devel \
+                   libxkbcommon-devel libcairo-devel pango-devel \
+                   dbus-devel libpng-devel
+```
+
+#### Ubuntu/Debian
+
+```bash
+sudo apt install build-essential libevdev-dev \
+                 libwayland-dev wayland-protocols libxkbcommon-dev \
+                 libcairo2-dev libpango1.0-dev libdbus-1-dev libpng-dev
+```
+
+#### Fedora
+
+```bash
+sudo dnf install gcc-c++ make libevdev-devel \
+                 wayland-devel wayland-protocols-devel libxkbcommon-devel \
+                 cairo-devel pango-devel dbus-devel libpng-devel
+```
+
+### Building FLTK 1.4 (Required)
+
+**Important:** Most distributions ship FLTK 1.3, which lacks native Wayland support. You need to compile FLTK 1.4 from source.
+
+If your distribution already has FLTK 1.4+, you can skip this step and modify the `Makefile` to use your system's `fltk-config`.
+
+```bash
+# Clone FLTK
+git clone https://github.com/fltk/fltk.git
 cd fltk
 mkdir build && cd build
 
-```
-
-
-2. Configure and Install (Static + Wayland):
-```bash
+# Configure for static linking + Wayland
 cmake .. -G Ninja \
-   -D CMAKE_BUILD_TYPE=Release \
-   -D FLTK_BUILD_SHARED_LIBS=OFF \
-   -D FLTK_BUILD_STATIC=ON \
-   -D CMAKE_POSITION_INDEPENDENT_CODE=ON \
-   -D CMAKE_INSTALL_PREFIX=/usr/local \
-   -D FLTK_BUILD_TEST=OFF
+   -DCMAKE_BUILD_TYPE=Release \
+   -DFLTK_BUILD_SHARED_LIBS=OFF \
+   -DFLTK_BUILD_STATIC=ON \
+   -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+   -DCMAKE_INSTALL_PREFIX=/usr/local \
+   -DFLTK_BUILD_TEST=OFF \
+   -DOPTION_USE_WAYLAND=ON
 
+# Build and install
 ninja
 sudo ninja install
-
 ```
 
+**Note:** The Makefile is configured for FLTK installed at `/usr/local/bin/fltk-config`. If you installed FLTK elsewhere, edit the `FLTK_CONFIG` variable in the Makefile.
 
+### Compiling Radian
 
-### Installing Radian
-
-Once dependencies are met, follow these steps to compile Radian:
-
-1. Clone the repository:
 ```bash
-git clone [https://github.com/diabloget/radian.git](https://github.com/diabloget/radian.git)
+# Clone repository
+git clone https://github.com/diabloget/radian.git
 cd radian
 
-```
-
-
-2. Compile the binary using the provided Makefile:
-```bash
+# Build binary
 make build
 
+# Run
+./radian
 ```
 
-### Checking proper creation of virtual device
-
-You should validate that the virtual device is recognized by the operating system.
+### Creating AppImage
 
 ```bash
-# Verify the creation of the virtual device in kernel logs
+# Download appimagetool (if not already installed)
+wget https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+chmod +x appimagetool-x86_64.AppImage
+
+# Build AppImage
+make appimage
+```
+
+This creates `radian-x86_64.AppImage` ready for distribution.
+
+### Building Flatpak (Local Testing)
+
+```bash
+# Install Flatpak and flatpak-builder
+sudo eopkg install flatpak flatpak-builder  # Solus
+# OR
+sudo apt install flatpak flatpak-builder    # Ubuntu/Debian
+
+# Add Flathub
+flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+
+# Install runtimes
+flatpak install flathub org.freedesktop.Platform//24.08
+flatpak install flathub org.freedesktop.Sdk//24.08
+
+# Build and install locally
+make flatpak-build
+
+# Run
+make flatpak-run
+```
+
+## Uninstalling
+
+### AppImage
+
+Simply delete the `.AppImage` file and remove permissions:
+
+```bash
+# Remove from input group
+sudo gpasswd -d $USER input
+
+# Remove config (optional)
+rm -rf ~/.config/radian
+
+# Log out and log in for group change to take effect
+```
+
+### Flatpak
+
+```bash
+flatpak uninstall io.github.diabloget.radian
+```
+
+Config files are automatically cleaned up by Flatpak.
+
+## Verification
+
+After installation, verify the virtual device is recognized:
+
+```bash
+# Check kernel logs
 dmesg | grep "Radian-Input"
 
+# Should show something like:
+# input: Radian-Input as /devices/virtual/input/input25
 ```
 
-**Note:** You can manually go into your DE's settings and look for a new "mouse" named 'Radian-Input-Device'. Disabling mouse acceleration here is recommended.
+You can also check your desktop environment's input settings for a new mouse device named "Radian-Input".
 
-## Deployment (AppImage)
+## Troubleshooting
 
-Radian uses the AppImage format to run on various distributions without dependency issues.
+### "Failed to create virtual mouse"
 
-1. Ensure you have `appimagetool` installed. If not, download it:
+Ensure you have permissions:
 ```bash
-wget [https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage](https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage)
-chmod +x appimagetool-x86_64.AppImage
-sudo mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
+# Check if you're in input group
+groups | grep input
 
+# If not, add yourself
+sudo usermod -aG input $USER
+# Then log out and log in
 ```
 
+### "Permission denied" on /dev/input
 
-2. Generate the distributable package:
+Same solution as above - you need to be in the `input` group.
+
+### AppImage won't run
+
 ```bash
-make
+# Make sure it's executable
+chmod +x radian-x86_64.AppImage
 
+# Check dependencies
+ldd ./radian-x86_64.AppImage
 ```
 
-The result will be a `Radian-x86_64.AppImage` file ready to be shared.
+### Inconsistent 360
+This often happens because the game you are trying to use Radian on is made in UE5 (Like Arc Raiders) and has cursor smoothing or some sort of mouse acceleration. There isn't much either you as user or me as developer could do in these scenarios. 
+
+One important note is that if you are sure the game is not the problem, you could try to disable the mouse acceleration within linux settings for the 'Radian-Input', but this should not really affect your results since Linux mouse acceleration is deterministic.
+
+### Keybinds not working
+
+1. Make sure Radian has focus when setting keybinds
+2. Check that your keybinds don't conflict with your game
+3. Try resetting to defaults in the MENU
+
+## Security & Privacy
+
+- **No network access**: Radian operates entirely offline
+- **No data collection**: All data stays on your machine
+- **Open source**: Full code available for audit
+- **No root required**: Permissions granted via user groups, no system modifications
 
 ## Built With
 
 * [FLTK 1.4](https://www.fltk.org/) - GUI framework (Wayland support)
-* [libevdev](https://www.freedesktop.org/wiki/Software/libevdev/) - Interface for kernel event handling
-* [uinput](https://kernel.org/doc/html/latest/input/uinput.html) - Kernel module for virtual input
+* [libevdev](https://www.freedesktop.org/wiki/Software/libevdev/) - Kernel event handling interface
+* [uinput](https://kernel.org/doc/html/latest/input/uinput.html) - Virtual input device creation
 * [Canva](https://www.canva.com/) - Application icon design
 
 ## Contributing
 
-This is a personal project, but feel free to fork or submit an issue. If you provide a fix, I will verify it and give you credit here.
+This is a personal project, but contributions are welcome! Feel free to:
+- Report bugs via [Issues](https://github.com/diabloget/radian/issues)
+- Submit pull requests with fixes or improvements
+- Suggest features
+
+All contributors will be credited here.
 
 ## Authors
 
@@ -134,9 +319,9 @@ This is a personal project, but feel free to fork or submit an issue. If you pro
 
 ## License
 
-This project is licensed under the GNU GPLv3 License - see the [LICENSE](https://www.google.com/search?q=LICENSE) file for details.
+This project is licensed under the GNU GPLv3 License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
-* AI assistance (Gemini, Claude) used for algorithm optimization and Makefiles.
-* Inspired by Kovaak's Sensitivity Matcher.
+* AI assistance (Gemini, Claude) for code optimization and build system improvements
+* Inspired by Kovaak's Sensitivity Matcher
